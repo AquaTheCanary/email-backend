@@ -1,57 +1,75 @@
+from http.server import BaseHTTPRequestHandler
+import json
 import os
 import random
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 
-app = Flask(__name__)
-CORS(app)
+class handler(BaseHTTPRequestHandler):
 
-SENDER_EMAIL = "aquathecanary@gmail.com"
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
 
-@app.route('/api/send', methods=['GET', 'POST', 'OPTIONS'])
-@app.route('/', methods=['GET', 'POST', 'OPTIONS'])
-def send_email():
-    if request.method == 'OPTIONS':
-        return jsonify({"status": "ok"}), 200
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps({"status": "Backend API is running!"}).encode('utf-8'))
 
-    if request.method == 'GET':
-        return jsonify({"status": "Vercel Python Backend is running."}), 200
+    def do_POST(self):
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+        except Exception:
+            data = {}
 
-    data = request.json or {}
-    user_email = data.get('email')
-    
-    if not user_email or '@' not in user_email:
-        return jsonify({"success": False, "error": "Invalid email address."}), 400
-
-    app_password = os.environ.get("GMAIL_APP_PASSWORD")
-    if not app_password:
-        return jsonify({"success": False, "error": "Server configuration error: Missing GMAIL_APP_PASSWORD in Vercel environment variables."}), 500
-
-    verification_code = str(random.randint(100000, 999999))
-
-    msg = EmailMessage()
-    msg['Subject'] = 'Your Setup Verification Code'
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = user_email
-    msg.set_content(
-        f"Hello,\n\n"
-        f"Welcome to the platform!\n\n"
-        f"To verify your email, please enter the code below:\n{verification_code}\n\n"
-        f"Thank you for registering and enjoy the platform!\n\n\n"
-        f"Kind regards,\nArchie Sneddon"
-    )
-
-    try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(SENDER_EMAIL, app_password)
-            smtp.send_message(msg)
+        user_email = data.get('email')
         
-        return jsonify({
-            "success": True,
-            "message": "Email sent successfully!",
-            "code": verification_code
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": f"SMTP Error: {str(e)}"}), 500
+        if not user_email or '@' not in user_email:
+            res_body = json.dumps({"success": False, "error": "Invalid email address."}).encode('utf-8')
+        else:
+            app_password = os.environ.get("GMAIL_APP_PASSWORD")
+            if not app_password:
+                res_body = json.dumps({"success": False, "error": "Server error: Missing GMAIL_APP_PASSWORD in Vercel environment variables."}).encode('utf-8')
+            else:
+                verification_code = str(random.randint(100000, 999999))
+                sender_email = "aquathecanary@gmail.com"
+
+                msg = EmailMessage()
+                msg['Subject'] = 'Your Setup Verification Code'
+                msg['From'] = sender_email
+                msg['To'] = user_email
+                msg.set_content(
+                    f"Hello,\n\n"
+                    f"Welcome to the platform!\n\n"
+                    f"To verify your email, please enter the code below:\n{verification_code}\n\n"
+                    f"Thank you for registering!\n\n"
+                    f"Kind regards,\nArchie Sneddon"
+                )
+
+                try:
+                    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                        smtp.login(sender_email, app_password)
+                        smtp.send_message(msg)
+                    
+                    res_body = json.dumps({
+                        "success": True,
+                        "message": "Email sent successfully!",
+                        "code": verification_code
+                    }).encode('utf-8')
+                except Exception as e:
+                    res_body = json.dumps({"success": False, "error": f"SMTP Error: {str(e)}"}).encode('utf-8')
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        self.wfile.write(res_body)
