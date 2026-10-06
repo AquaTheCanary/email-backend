@@ -1,63 +1,62 @@
-import nodemailer from 'nodemailer';
+const nodemailer = require('nodemailer');
 
-export default async function handler(req, res) {
-  // 1. ALWAYS set CORS headers first so the browser never throws 'Failed to fetch'
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+module.exports = async (req, res) => {
+    // Set CORS headers for GitHub Pages domain
+    res.setHeader('Access-Control-Allow-Origin', 'https://aquathecanary.github.io');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // 2. Handle Browser Preflight (OPTIONS)
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  // 3. Handle GET request health check
-  if (req.method === 'GET') {
-    return res.status(200).json({ status: "Vercel API is live and ready!" });
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  try {
-    // Safely parse body
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const { email } = body;
-
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ success: false, error: "Invalid email address." });
+    // Handle CORS preflight options check
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
 
-    const appPassword = process.env.GMAIL_APP_PASSWORD;
-    if (!appPassword) {
-      return res.status(500).json({ success: false, error: "Missing GMAIL_APP_PASSWORD environment variable in Vercel." });
+    // Friendly message if accessed via GET in browser
+    if (req.method === 'GET') {
+        return res.status(200).json({ status: "API Online", endpoint: "/api/send" });
     }
 
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    const { email, code } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+    }
 
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: 'aquathecanary@gmail.com',
-        pass: appPassword,
-      },
+        service: 'gmail',
+        auth: {
+            user: process.env.GMAIL_USER,
+            pass: process.env.GMAIL_APP_PASSWORD
+        }
     });
 
-    await transporter.sendMail({
-      from: '"Archie Sneddon" <aquathecanary@gmail.com>',
-      to: email,
-      subject: 'Your Setup Verification Code',
-      text: `Hello,\n\nWelcome to the platform!\n\nTo verify your email, enter this code: ${verificationCode}\n\nKind regards,\nArchie Sneddon`,
-    });
+    const passcode = code || Math.floor(100000 + Math.random() * 900000).toString();
 
-    return res.status(200).json({
-      success: true,
-      message: "Email sent successfully!",
-      code: verificationCode,
-    });
-  } catch (error) {
-    // Return explicit JSON on failure so fetch() handles it gracefully
-    return res.status(500).json({ success: false, error: `Server Error: ${error.message}` });
-  }
-}
+    const mailOptions = {
+        from: `"Platform Security" <${process.env.GMAIL_USER}>`,
+        to: email,
+        subject: "Your Platform Verification Code",
+        html: `
+            <div style="font-family: Arial, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 30px; border-radius: 12px; max-width: 480px; margin: auto;">
+                <h2 style="color: #6366f1; margin-bottom: 12px;">Platform Security</h2>
+                <p style="color: #94a3b8; font-size: 14px;">Your single-use verification code is:</p>
+                <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #ffffff; background-color: #1e293b; padding: 16px; border-radius: 8px; text-align: center; margin: 20px 0;">
+                    ${passcode}
+                </div>
+                <p style="color: #64748b; font-size: 12px;">If you did not request this email, you can safely ignore it.</p>
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        return res.status(200).json({ success: true, message: "Verification code sent successfully" });
+    } catch (error) {
+        console.error("Nodemailer Error:", error);
+        return res.status(500).json({ error: "Failed to send email", details: error.message });
+    }
+};
